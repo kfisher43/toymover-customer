@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var APP_VERSION = '1.1.0'; // bump on every meaningful deploy (shown in the footer)
+  var APP_VERSION = '1.2.0'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -342,10 +342,32 @@
   }
 
   // ---------- routing ----------
+  // display name: customer_profiles.full_name -> drivers.full_name (my_profile) -> auth metadata -> email local-part
+  var nameCache = {};
+  function fallbackName(u) {
+    var md = (u && u.user_metadata) || {};
+    var n = md.full_name || md.name;
+    if (n) return n;
+    var local = String((u && u.email) || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
+    return local.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+  async function resolveName(u) {
+    try { var p = await sb.from('customer_profiles').select('full_name').eq('user_id', u.id).maybeSingle(); if (p.data && p.data.full_name && p.data.full_name.trim()) return p.data.full_name.trim(); } catch (e) {}
+    try { var d = await sb.rpc('my_profile'); var row = d.data && d.data[0]; if (row && row.full_name && row.full_name.trim()) return row.full_name.trim(); } catch (e) {}
+    return fallbackName(u);
+  }
+  async function showName() {
+    var u = session && session.user; if (!u) return;
+    var el = $('who'); el.title = u.email || '';
+    if (nameCache[u.id]) { el.textContent = nameCache[u.id]; return; }
+    el.textContent = fallbackName(u);
+    var n = await resolveName(u); nameCache[u.id] = n;
+    if (session && session.user && session.user.id === u.id) el.textContent = n;
+  }
   function setChrome() {
     var signed = !!session && !recovery;
     $('tabs').hidden = !signed; $('logout').hidden = !signed;
-    $('who').textContent = signed ? (session.user.email || '') : '';
+    if (signed) showName(); else { $('who').textContent = ''; $('who').title = ''; }
     var h = location.hash || '#/';
     $('t-new').classList.toggle('on', h === '#/new'); $('t-list').classList.toggle('on', h !== '#/new');
   }
