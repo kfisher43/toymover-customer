@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var APP_VERSION = '1.2.1'; // bump on every meaningful deploy (shown in the footer)
+  var APP_VERSION = '1.3.0'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -12,6 +12,7 @@
   var STATES = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
   function stateSel(id) { return '<select id="' + id + '" autocomplete="address-level1" required><option value="">State</option>' + STATES.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select>'; }
   function placeKv(q, p, label) { return kv(label + ' address', q[p + '_address']) + kv(label + ' city', q[p + '_city']) + kv(label + ' state', q[p + '_state']); }
+  function contactKv(q, p, label) { return kv(label + ' contact', q[p + '_contact_name']) + kv(label + ' phone', q[p + '_phone']); }
   function cityLine(q, p) { return [q[p + '_city'], q[p + '_state']].filter(Boolean).join(', '); }
   var PAY_METHODS = ['Cash', 'Zelle', 'Venmo', 'Credit Card', 'ACH', 'Apple Pay'];
 
@@ -125,30 +126,43 @@
 
   // ---------- new request ----------
   async function viewNew() {
-    var prof = await sb.from('customer_profiles').select('full_name,phone').eq('user_id', session.user.id).maybeSingle();
+    var prof = await sb.from('customer_profiles').select('full_name,phone,company').eq('user_id', session.user.id).maybeSingle();
     var p = prof.data || {};
     var h = '<h1>New request</h1><form id="nf" class="card" novalidate>' +
       '<label>What do you need?</label><div class="seg"><label><input type="radio" name="rt" value="transport" checked><span>Transport job</span></label><label><input type="radio" name="rt" value="bid"><span>Get a quote (bid)</span></label></div>' +
-      '<label for="it">Item type</label><select id="it">' + ITEM_TYPES.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
-      '<label for="id">Item details (year, make, model, size, weight)</label><textarea id="id" required placeholder="e.g. 2019 Harley Road Glide, 800 lb"></textarea>' +
-      '<label for="pa">Pickup address</label><input id="pa" autocomplete="street-address" required>' +
-      '<div class="cs"><div><label for="pc">Pickup city</label><input id="pc" autocomplete="address-level2" required></div><div><label for="ps2">State</label>' + stateSel('ps2') + '</div></div>' +
-      '<label for="da">Delivery address</label><input id="da" required>' +
-      '<div class="cs"><div><label for="dc">Delivery city</label><input id="dc" autocomplete="address-level2" required></div><div><label for="ds2">State</label>' + stateSel('ds2') + '</div></div>' +
-      '<label>Pickup date range</label><div class="two"><div><label for="ps" class="sub">From</label><input id="ps" type="date" required></div><div><label for="pe" class="sub">To</label><input id="pe" type="date" required></div></div>' +
-      '<label>Delivery date range</label><div class="two"><div><label for="ds" class="sub">From</label><input id="ds" type="date" required></div><div><label for="de" class="sub">To</label><input id="de" type="date" required></div></div>' +
-      '<div class="two"><div><label for="cn">Contact name</label><input id="cn" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
+      '<h2>Customer</h2>' +
+      '<div class="two"><div><label for="cn">Name</label><input id="cn" autocomplete="name" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" autocomplete="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
       '<label for="ce">Email</label><input id="ce" type="email" autocomplete="email" inputmode="email" value="' + esc((session.user && session.user.email) || '') + '" required>' +
+      '<label for="co">Company (optional)</label><input id="co" autocomplete="organization" value="' + esc(p.company || '') + '">' +
       '<label>How should we contact you?</label><div class="seg"><label><input type="radio" name="cpref" value="text"><span>Text messaging</span></label><label><input type="radio" name="cpref" value="email"><span>Email</span></label></div>' +
       '<label for="pm">Payment method</label><select id="pm">' + PAY_METHODS.map(function (t) { return '<option' + (t === 'Cash' ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>' +
+      '<h2>Pickup</h2>' +
+      '<div class="two"><div><label for="pcn">Contact name</label><input id="pcn" value="' + esc(p.full_name || '') + '" required></div><div><label for="pp">Phone</label><input id="pp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
+      '<label for="pa">Street address</label><input id="pa" autocomplete="off" required>' +
+      '<div class="cs"><div><label for="pc">City</label><input id="pc" autocomplete="off" required></div><div><label for="ps2">State</label>' + stateSel('ps2') + '</div></div>' +
+      '<h2>Delivery</h2>' +
+      '<div class="two"><div><label for="dcn">Contact name</label><input id="dcn" value="' + esc(p.full_name || '') + '" required></div><div><label for="dp">Phone</label><input id="dp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
+      '<label for="da">Street address</label><input id="da" autocomplete="off" required>' +
+      '<div class="cs"><div><label for="dc">City</label><input id="dc" autocomplete="off" required></div><div><label for="ds2">State</label>' + stateSel('ds2') + '</div></div>' +
+      '<h2>Item</h2>' +
+      '<label for="it">Item type</label><select id="it">' + ITEM_TYPES.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
+      '<label for="id">Item details (year, make, model, size, weight)</label><textarea id="id" required placeholder="e.g. 2019 Harley Road Glide, 800 lb"></textarea>' +
+      '<label>Pickup date range</label><div class="two"><div><label for="ps" class="sub">From</label><input id="ps" type="date" required></div><div><label for="pe" class="sub">To</label><input id="pe" type="date" required></div></div>' +
+      '<label>Delivery date range</label><div class="two"><div><label for="ds" class="sub">From</label><input id="ds" type="date" required></div><div><label for="de" class="sub">To</label><input id="de" type="date" required></div></div>' +
       '<label for="nt">Notes (access, condition, gate codes)</label><textarea id="nt"></textarea>' + photoPicker(0) +
       '<div id="nmsg"></div><button class="btn primary" id="nb" type="submit">Submit request</button></form>';
     view.innerHTML = h; wirePicker(0);
+    [['cn', ['pcn', 'dcn']], ['cp', ['pp', 'dp']]].forEach(function (pair) {
+      pair[1].forEach(function (tid) { $(tid).oninput = function () { this.dataset.touched = '1'; }; });
+      $(pair[0]).addEventListener('input', function () {
+        var val = this.value; pair[1].forEach(function (tid) { var t = $(tid); if (!t.dataset.touched) t.value = val; });
+      });
+    });
     $('nf').onsubmit = async function (ev) {
       ev.preventDefault();
       var b = $('nb'), m = $('nmsg'); m.innerHTML = '';
       var v = function (id) { return $(id).value.trim(); };
-      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['ps2', 'pickup state'], ['da', 'delivery address'], ['dc', 'delivery city'], ['ds2', 'delivery state'], ['cn', 'contact name'], ['cp', 'phone'], ['ce', 'email']];
+      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['ps2', 'pickup state'], ['da', 'delivery address'], ['dc', 'delivery city'], ['ds2', 'delivery state'], ['cn', 'your name'], ['cp', 'your phone'], ['ce', 'your email'], ['pcn', 'pickup contact name'], ['pp', 'pickup phone'], ['dcn', 'delivery contact name'], ['dp', 'delivery phone']];
       for (var i = 0; i < need.length; i++) if (!v(need[i][0])) { m.innerHTML = msg('err', 'Please fill in ' + need[i][1] + '.'); return; }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('ce'))) { m.innerHTML = msg('err', 'Please enter a valid email address.'); return; }
       var dn = [['ps', 'pickup start date'], ['pe', 'pickup end date'], ['ds', 'delivery start date'], ['de', 'delivery end date']];
@@ -162,7 +176,8 @@
         var photos = await uploadPending();
         var row = {
           request_type: document.querySelector('input[name=rt]:checked').value,
-          contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value, payment_method: $('pm').value,
+          contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), company: v('co') || null,
+          pickup_contact_name: v('pcn'), pickup_phone: v('pp'), delivery_contact_name: v('dcn'), delivery_phone: v('dp'), contact_preference: pref.value, payment_method: $('pm').value,
           pickup_address: v('pa'), pickup_city: v('pc'), pickup_state: v('ps2'), delivery_address: v('da'), delivery_city: v('dc'), delivery_state: v('ds2'),
           item_description: $('it').value + ': ' + v('id'),
           pickup_date_start: v('ps'), pickup_date_end: v('pe'), delivery_date_start: v('ds'), delivery_date_end: v('de'),
@@ -170,9 +185,26 @@
         };
         var r = await sb.from('customer_requests').insert(row);
         if (r.error) throw r.error;
+        await saveProfile({ full_name: v('cn'), phone: v('cp'), company: v('co') });
         pending = []; toast('Request submitted. We will review it shortly.'); location.hash = '#/';
       } catch (e) { m.innerHTML = msg('err', nice(e)); setBusy(b, false, 'Submit request'); }
     };
+  }
+
+  // best effort: keep customer_profiles in sync with the Customer section; never blocks the submit
+  async function saveProfile(f) {
+    try {
+      var upd = {};
+      ['full_name', 'phone', 'company'].forEach(function (k) { if (f[k]) upd[k] = f[k]; });
+      if (!Object.keys(upd).length) return;
+      var uid = session.user.id;
+      var u = await sb.from('customer_profiles').update(upd).eq('user_id', uid).select('user_id');
+      if (u.error) return;
+      if (!u.data || !u.data.length) {
+        var ins = Object.assign({ user_id: uid, email: session.user.email || null }, upd);
+        await sb.from('customer_profiles').insert(ins);
+      }
+    } catch (e) { /* ignore */ }
   }
 
   // ---------- list ----------
@@ -213,8 +245,10 @@
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + '</div>' +
       (q.public_message ? '<div class="msg ' + (q.status === 'Missing information' ? 'warn' : 'ok') + '"><b>From Toymover:</b> ' + esc(q.public_message) + '</div>' : '') +
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
-      placeKv(q, 'pickup', 'Pickup') + placeKv(q, 'delivery', 'Delivery') +
-      dateKv(q) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) + kv('Notes', q.notes) +
+      '<h2>Customer</h2>' + kv('Name', q.contact_name) + kv('Phone', q.contact_phone) + kv('Email', q.contact_email) + kv('Company', q.company) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
+      '<h2>Pickup</h2>' + contactKv(q, 'pickup', 'Pickup') + placeKv(q, 'pickup', 'Pickup') +
+      '<h2>Delivery</h2>' + contactKv(q, 'delivery', 'Delivery') + placeKv(q, 'delivery', 'Delivery') +
+      dateKv(q) + kv('Notes', q.notes) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
     if (q.status === 'Quoted' && q.quote_amount != null) {
       h += '<div class="card quote"><div class="muted">Your quote</div><div class="amt">' + money(q.quote_amount) + '</div><div class="muted small">Quoted ' + fdate(q.quote_released_at) + '</div>' +
@@ -294,9 +328,9 @@
     var priced = q.quote_amount != null || q.quoted_price != null || q.internal_notes != null;
     var h = '<div class="msg warn small"><b>Supervisor view</b> · request ' + esc(q.id) + '</div><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + (q.reviewed_by ? ' · reviewed by ' + esc(q.reviewed_by) + ' ' + fdate(q.reviewed_at) : '') + '</div>' +
-      '<h2>Customer</h2>' + kv('Account name', q.customer_name) + kv('Account email', q.customer_email) + kv('Company', q.customer_company) +
-      kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
-      '<h2>Job</h2>' + placeKv(q, 'pickup', 'Pickup') + placeKv(q, 'delivery', 'Delivery') +
+      '<h2>Customer</h2>' + kv('Name', q.contact_name || q.customer_name) + kv('Phone', q.contact_phone) + kv('Email', q.contact_email || q.customer_email) + kv('Company', q.company || q.customer_company) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
+      '<h2>Pickup</h2>' + contactKv(q, 'pickup', 'Pickup') + placeKv(q, 'pickup', 'Pickup') +
+      '<h2>Delivery</h2>' + contactKv(q, 'delivery', 'Delivery') + placeKv(q, 'delivery', 'Delivery') +
       dateKv(q) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
       kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
