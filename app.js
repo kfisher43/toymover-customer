@@ -1,9 +1,11 @@
 (function () {
   'use strict';
+  var APP_VERSION = '1.1.0'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var view = document.getElementById('view');
+  var verEl = document.getElementById('ver'); if (verEl) verEl.textContent = 'v' + APP_VERSION;
   var session = null, recovery = false;
   var ITEM_TYPES = ['Motorcycle', 'Camper / RV', 'Trailer', 'Boat', 'Sign', 'Mini bike', 'Other'];
   var MAX_PHOTOS = 12;
