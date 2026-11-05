@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var APP_VERSION = '1.2.0'; // bump on every meaningful deploy (shown in the footer)
+  var APP_VERSION = '1.2.1'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -9,6 +9,10 @@
   var session = null, recovery = false;
   var ITEM_TYPES = ['Motorcycle', 'Camper / RV', 'Trailer', 'Boat', 'Sign', 'Mini bike', 'Other'];
   var MAX_PHOTOS = 12;
+  var STATES = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
+  function stateSel(id) { return '<select id="' + id + '" autocomplete="address-level1" required><option value="">State</option>' + STATES.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select>'; }
+  function placeKv(q, p, label) { return kv(label + ' address', q[p + '_address']) + kv(label + ' city', q[p + '_city']) + kv(label + ' state', q[p + '_state']); }
+  function cityLine(q, p) { return [q[p + '_city'], q[p + '_state']].filter(Boolean).join(', '); }
   var PAY_METHODS = ['Cash', 'Zelle', 'Venmo', 'Credit Card', 'ACH', 'Apple Pay'];
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -128,9 +132,9 @@
       '<label for="it">Item type</label><select id="it">' + ITEM_TYPES.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
       '<label for="id">Item details (year, make, model, size, weight)</label><textarea id="id" required placeholder="e.g. 2019 Harley Road Glide, 800 lb"></textarea>' +
       '<label for="pa">Pickup address</label><input id="pa" autocomplete="street-address" required>' +
-      '<label for="pc">Pickup city / state</label><input id="pc" required>' +
+      '<div class="cs"><div><label for="pc">Pickup city</label><input id="pc" autocomplete="address-level2" required></div><div><label for="ps2">State</label>' + stateSel('ps2') + '</div></div>' +
       '<label for="da">Delivery address</label><input id="da" required>' +
-      '<label for="dc">Delivery city / state</label><input id="dc" required>' +
+      '<div class="cs"><div><label for="dc">Delivery city</label><input id="dc" autocomplete="address-level2" required></div><div><label for="ds2">State</label>' + stateSel('ds2') + '</div></div>' +
       '<label>Pickup date range</label><div class="two"><div><label for="ps" class="sub">From</label><input id="ps" type="date" required></div><div><label for="pe" class="sub">To</label><input id="pe" type="date" required></div></div>' +
       '<label>Delivery date range</label><div class="two"><div><label for="ds" class="sub">From</label><input id="ds" type="date" required></div><div><label for="de" class="sub">To</label><input id="de" type="date" required></div></div>' +
       '<div class="two"><div><label for="cn">Contact name</label><input id="cn" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
@@ -144,7 +148,7 @@
       ev.preventDefault();
       var b = $('nb'), m = $('nmsg'); m.innerHTML = '';
       var v = function (id) { return $(id).value.trim(); };
-      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['da', 'delivery address'], ['dc', 'delivery city'], ['cn', 'contact name'], ['cp', 'phone'], ['ce', 'email']];
+      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['ps2', 'pickup state'], ['da', 'delivery address'], ['dc', 'delivery city'], ['ds2', 'delivery state'], ['cn', 'contact name'], ['cp', 'phone'], ['ce', 'email']];
       for (var i = 0; i < need.length; i++) if (!v(need[i][0])) { m.innerHTML = msg('err', 'Please fill in ' + need[i][1] + '.'); return; }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('ce'))) { m.innerHTML = msg('err', 'Please enter a valid email address.'); return; }
       var dn = [['ps', 'pickup start date'], ['pe', 'pickup end date'], ['ds', 'delivery start date'], ['de', 'delivery end date']];
@@ -159,7 +163,7 @@
         var row = {
           request_type: document.querySelector('input[name=rt]:checked').value,
           contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value, payment_method: $('pm').value,
-          pickup_address: v('pa'), pickup_city: v('pc'), delivery_address: v('da'), delivery_city: v('dc'),
+          pickup_address: v('pa'), pickup_city: v('pc'), pickup_state: v('ps2'), delivery_address: v('da'), delivery_city: v('dc'), delivery_state: v('ds2'),
           item_description: $('it').value + ': ' + v('id'),
           pickup_date_start: v('ps'), pickup_date_end: v('pe'), delivery_date_start: v('ds'), delivery_date_end: v('de'),
           preferred_dates: 'Pickup ' + rangeText(v('ps'), v('pe')) + '; Delivery ' + rangeText(v('ds'), v('de')), notes: v('nt') || null, photos: photos
@@ -181,7 +185,7 @@
     if (!rows.length) h += '<p class="muted center">No requests yet. Tap “New request” to get started.</p>';
     rows.forEach(function (q) {
       h += '<a class="card" href="#/r/' + q.id + '"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
-        '<div class="muted small">' + esc(q.pickup_city || '') + ' → ' + esc(q.delivery_city || '') + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + ' · ' + fdate(q.created_at) + '</div>' +
+        '<div class="muted small">' + esc(cityLine(q, 'pickup')) + ' → ' + esc(cityLine(q, 'delivery')) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + ' · ' + fdate(q.created_at) + '</div>' +
         (q.status === 'Quoted' && q.quote_amount != null ? '<div class="pay small"><b>Quote ready: ' + money(q.quote_amount) + '</b> – tap to review</div>' : '') +
         (q.status === 'Missing information' ? '<div class="small" style="color:var(--warn)"><b>We need a little more information</b> – tap to reply</div>' : '') + '</a>';
     });
@@ -209,7 +213,7 @@
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + '</div>' +
       (q.public_message ? '<div class="msg ' + (q.status === 'Missing information' ? 'warn' : 'ok') + '"><b>From Toymover:</b> ' + esc(q.public_message) + '</div>' : '') +
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
-      kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
+      placeKv(q, 'pickup', 'Pickup') + placeKv(q, 'delivery', 'Delivery') +
       dateKv(q) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) + kv('Notes', q.notes) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
     if (q.status === 'Quoted' && q.quote_amount != null) {
@@ -292,7 +296,7 @@
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + (q.reviewed_by ? ' · reviewed by ' + esc(q.reviewed_by) + ' ' + fdate(q.reviewed_at) : '') + '</div>' +
       '<h2>Customer</h2>' + kv('Account name', q.customer_name) + kv('Account email', q.customer_email) + kv('Company', q.customer_company) +
       kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
-      '<h2>Job</h2>' + kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
+      '<h2>Job</h2>' + placeKv(q, 'pickup', 'Pickup') + placeKv(q, 'delivery', 'Delivery') +
       dateKv(q) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
       kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
