@@ -129,7 +129,8 @@
       '<label for="pc">Pickup city / state</label><input id="pc" required>' +
       '<label for="da">Delivery address</label><input id="da" required>' +
       '<label for="dc">Delivery city / state</label><input id="dc" required>' +
-      '<label for="pd">Preferred dates</label><input id="pd" placeholder="e.g. week of Nov 16, flexible">' +
+      '<label>Pickup date range</label><div class="two"><div><label for="ps" class="sub">From</label><input id="ps" type="date" required></div><div><label for="pe" class="sub">To</label><input id="pe" type="date" required></div></div>' +
+      '<label>Delivery date range</label><div class="two"><div><label for="ds" class="sub">From</label><input id="ds" type="date" required></div><div><label for="de" class="sub">To</label><input id="de" type="date" required></div></div>' +
       '<div class="two"><div><label for="cn">Contact name</label><input id="cn" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
       '<label for="ce">Email</label><input id="ce" type="email" autocomplete="email" inputmode="email" value="' + esc((session.user && session.user.email) || '') + '" required>' +
       '<label>How should we contact you?</label><div class="seg"><label><input type="radio" name="cpref" value="text"><span>Text messaging</span></label><label><input type="radio" name="cpref" value="email"><span>Email</span></label></div>' +
@@ -144,6 +145,10 @@
       var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['da', 'delivery address'], ['dc', 'delivery city'], ['cn', 'contact name'], ['cp', 'phone'], ['ce', 'email']];
       for (var i = 0; i < need.length; i++) if (!v(need[i][0])) { m.innerHTML = msg('err', 'Please fill in ' + need[i][1] + '.'); return; }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('ce'))) { m.innerHTML = msg('err', 'Please enter a valid email address.'); return; }
+      var dn = [['ps', 'pickup start date'], ['pe', 'pickup end date'], ['ds', 'delivery start date'], ['de', 'delivery end date']];
+      for (var k = 0; k < dn.length; k++) if (!v(dn[k][0])) { m.innerHTML = msg('err', 'Please choose the ' + dn[k][1] + '.'); return; }
+      if (v('pe') < v('ps')) { m.innerHTML = msg('err', 'Pickup end date must be on or after the start date.'); return; }
+      if (v('de') < v('ds')) { m.innerHTML = msg('err', 'Delivery end date must be on or after the start date.'); return; }
       var pref = document.querySelector('input[name=cpref]:checked');
       if (!pref) { m.innerHTML = msg('err', 'Please choose how we should contact you (text or email).'); return; }
       setBusy(b, true, 'Submit request');
@@ -154,7 +159,8 @@
           contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value, payment_method: $('pm').value,
           pickup_address: v('pa'), pickup_city: v('pc'), delivery_address: v('da'), delivery_city: v('dc'),
           item_description: $('it').value + ': ' + v('id'),
-          preferred_dates: v('pd') || null, notes: v('nt') || null, photos: photos
+          pickup_date_start: v('ps'), pickup_date_end: v('pe'), delivery_date_start: v('ds'), delivery_date_end: v('de'),
+          preferred_dates: 'Pickup ' + rangeText(v('ps'), v('pe')) + '; Delivery ' + rangeText(v('ds'), v('de')), notes: v('nt') || null, photos: photos
         };
         var r = await sb.from('customer_requests').insert(row);
         if (r.error) throw r.error;
@@ -181,6 +187,14 @@
   }
 
   // ---------- detail ----------
+  function ld(s) { var p = String(s).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function dshort(s) { return ld(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  function rangeText(a, b) { if (!a && !b) return ''; if (!b || a === b) return dshort(a || b); if (!a) return dshort(b); return dshort(a) + ' – ' + dshort(b); }
+  function dateKv(q) {
+    var p = rangeText(q.pickup_date_start, q.pickup_date_end), d = rangeText(q.delivery_date_start, q.delivery_date_end);
+    if (!p && !d) return kv('Preferred dates', q.preferred_dates);
+    return kv('Pickup window', p) + kv('Delivery window', d);
+  }
   function prefLabel(p) { return p === 'text' ? 'Text messaging' : p === 'email' ? 'Email' : ''; }
   function kv(k, v) { return v ? '<div class="kv"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>' : ''; }
   async function viewDetail(id) {
@@ -194,7 +208,7 @@
       (q.public_message ? '<div class="msg ' + (q.status === 'Missing information' ? 'warn' : 'ok') + '"><b>From Toymover:</b> ' + esc(q.public_message) + '</div>' : '') +
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
       kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
-      kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) + kv('Notes', q.notes) +
+      dateKv(q) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) + kv('Notes', q.notes) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
     if (q.status === 'Quoted' && q.quote_amount != null) {
       h += '<div class="card quote"><div class="muted">Your quote</div><div class="amt">' + money(q.quote_amount) + '</div><div class="muted small">Quoted ' + fdate(q.quote_released_at) + '</div>' +
@@ -277,7 +291,7 @@
       '<h2>Customer</h2>' + kv('Account name', q.customer_name) + kv('Account email', q.customer_email) + kv('Company', q.customer_company) +
       kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
       '<h2>Job</h2>' + kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
-      kv('Preferred dates', q.preferred_dates) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
+      dateKv(q) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
       kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
     h += '<div class="card"><h2 style="margin-top:0">Quote</h2>' +
