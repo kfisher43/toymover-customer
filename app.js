@@ -7,7 +7,7 @@
   var session = null, recovery = false;
   var ITEM_TYPES = ['Motorcycle', 'Camper / RV', 'Trailer', 'Boat', 'Sign', 'Mini bike', 'Other'];
   var MAX_PHOTOS = 12;
-  var PAY_METHODS = ['Cash', 'Zelle', 'Venmo', 'Credit Card', 'ACH'];
+  var PAY_METHODS = ['Cash', 'Zelle', 'Venmo', 'Credit Card', 'ACH', 'Apple Pay'];
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function $(id) { return document.getElementById(id); }
