@@ -7,6 +7,7 @@
   var session = null, recovery = false;
   var ITEM_TYPES = ['Motorcycle', 'Camper / RV', 'Trailer', 'Boat', 'Sign', 'Mini bike', 'Other'];
   var MAX_PHOTOS = 12;
+  var PAY_METHODS = ['Cash', 'Zelle', 'Venmo', 'Credit Card', 'ACH'];
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function $(id) { return document.getElementById(id); }
@@ -132,6 +133,7 @@
       '<div class="two"><div><label for="cn">Contact name</label><input id="cn" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
       '<label for="ce">Email</label><input id="ce" type="email" autocomplete="email" inputmode="email" value="' + esc((session.user && session.user.email) || '') + '" required>' +
       '<label>How should we contact you?</label><div class="seg"><label><input type="radio" name="cpref" value="text"><span>Text messaging</span></label><label><input type="radio" name="cpref" value="email"><span>Email</span></label></div>' +
+      '<label for="pm">Payment method</label><select id="pm">' + PAY_METHODS.map(function (t) { return '<option' + (t === 'Cash' ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>' +
       '<label for="nt">Notes (access, condition, gate codes)</label><textarea id="nt"></textarea>' + photoPicker(0) +
       '<div id="nmsg"></div><button class="btn primary" id="nb" type="submit">Submit request</button></form>';
     view.innerHTML = h; wirePicker(0);
@@ -149,7 +151,7 @@
         var photos = await uploadPending();
         var row = {
           request_type: document.querySelector('input[name=rt]:checked').value,
-          contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value,
+          contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value, payment_method: $('pm').value,
           pickup_address: v('pa'), pickup_city: v('pc'), delivery_address: v('da'), delivery_city: v('dc'),
           item_description: $('it').value + ': ' + v('id'),
           preferred_dates: v('pd') || null, notes: v('nt') || null, photos: photos
@@ -192,7 +194,7 @@
       (q.public_message ? '<div class="msg ' + (q.status === 'Missing information' ? 'warn' : 'ok') + '"><b>From Toymover:</b> ' + esc(q.public_message) + '</div>' : '') +
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
       kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
-      kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Notes', q.notes) +
+      kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) + kv('Notes', q.notes) +
       '<div class="thumbs" id="ph"></div></div>' + threadCard();
     if (q.status === 'Quoted' && q.quote_amount != null) {
       h += '<div class="card quote"><div class="muted">Your quote</div><div class="amt">' + money(q.quote_amount) + '</div><div class="muted small">Quoted ' + fdate(q.quote_released_at) + '</div>' +
@@ -273,7 +275,7 @@
     var h = '<div class="msg warn small"><b>Supervisor view</b> · request ' + esc(q.id) + '</div><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + (q.reviewed_by ? ' · reviewed by ' + esc(q.reviewed_by) + ' ' + fdate(q.reviewed_at) : '') + '</div>' +
       '<h2>Customer</h2>' + kv('Account name', q.customer_name) + kv('Account email', q.customer_email) + kv('Company', q.customer_company) +
-      kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) +
+      kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
       '<h2>Job</h2>' + kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
       kv('Preferred dates', q.preferred_dates) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
       kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
