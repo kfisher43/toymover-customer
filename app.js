@@ -193,7 +193,7 @@
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
       kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
       kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Notes', q.notes) +
-      '<div class="thumbs" id="ph"></div></div>';
+      '<div class="thumbs" id="ph"></div></div>' + threadCard();
     if (q.status === 'Quoted' && q.quote_amount != null) {
       h += '<div class="card quote"><div class="muted">Your quote</div><div class="amt">' + money(q.quote_amount) + '</div><div class="muted small">Quoted ' + fdate(q.quote_released_at) + '</div>' +
         '<div id="qm"></div><button class="btn primary" id="acc">Accept quote</button><label for="dn" style="text-align:left">Or decline (optional reason)</label><textarea id="dn" placeholder="Reason (optional)"></textarea><button class="btn danger" id="dec">Decline quote</button></div>';
@@ -208,6 +208,7 @@
     if (q.status === 'Accepted') h += msg('ok', 'Quote accepted. Toymover will confirm scheduling with you.');
     view.innerHTML = h;
     showPhotos($('ph'), q.photos);
+    wireThread(id, false);
     wirePicker((q.photos || []).length);
 
     function act(btn, fn, doneMsg, box) {
@@ -226,6 +227,35 @@
       var r = await sb.rpc('customer_respond_request', { p_request_id: id, p_notes: note, p_photos: photos }); if (r.error) throw r.error; pending = [];
     }, 'Sent. Thank you!', $('rm'));
     if ($('cx')) act($('cx'), async function () { if (!confirm('Cancel this request?')) throw new Error('Not cancelled.'); var r = await sb.rpc('customer_cancel_request', { p_request_id: id }); if (r.error) throw r.error; }, 'Request cancelled', $('cm'));
+  }
+
+  // ---------- conversation thread (customer + supervisor) ----------
+  function threadCard() {
+    return '<div class="card"><h2 style="margin-top:0">Conversation</h2><div id="th"><p class="muted small">Loading…</p></div>' +
+      '<label for="tb">Message</label><textarea id="tb" maxlength="2000" placeholder="Type a message"></textarea><div id="tm"></div><button class="btn primary" id="ts">Send message</button></div>';
+  }
+  async function wireThread(id, sup) {
+    var box = $('th');
+    async function load() {
+      var r = await sb.rpc(sup ? 'sup_list_messages' : 'customer_list_messages', { p_request_id: id });
+      if (r.error) { box.innerHTML = msg('err', nice(r.error)); return; }
+      var rows = r.data || [];
+      if (!rows.length) { box.innerHTML = '<p class="muted small">No messages yet.</p>'; return; }
+      box.innerHTML = rows.map(function (m) {
+        var mine = sup ? m.sender_role === 'supervisor' : m.sender_role === 'customer';
+        return '<div class="bubble ' + (mine ? 'mine' : 'theirs') + '"><div class="who">' + esc(m.sender_name || m.sender_role) + (sup ? ' · ' + esc(m.sender_role) : '') + ' · ' + new Date(m.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</div>' + esc(m.body) + '</div>';
+      }).join('');
+    }
+    $('ts').onclick = async function () {
+      var b = $('ts'), t = $('tb'), body = t.value.trim(), tm = $('tm'); tm.innerHTML = '';
+      if (!body) { tm.innerHTML = msg('err', 'Type a message first.'); return; }
+      setBusy(b, true, 'Send message');
+      var r = await sb.rpc(sup ? 'sup_post_message' : 'customer_post_message', { p_request_id: id, p_body: body });
+      setBusy(b, false, 'Send message');
+      if (r.error) { tm.innerHTML = msg('err', nice(r.error)); return; }
+      t.value = ''; toast('Message sent'); load();
+    };
+    await load();
   }
 
   // ---------- supervisor deep link (#/r/<uuid> when signed in as owner/supervisor) ----------
@@ -247,7 +277,7 @@
       '<h2>Job</h2>' + kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
       kv('Preferred dates', q.preferred_dates) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
       kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
-      '<div class="thumbs" id="ph"></div></div>';
+      '<div class="thumbs" id="ph"></div></div>' + threadCard();
     h += '<div class="card"><h2 style="margin-top:0">Quote</h2>' +
       (priced ? kv('Released quote (customer sees)', q.quote_amount != null ? money(q.quote_amount) : 'not released') + kv('Draft quoted price', q.quoted_price != null ? money(q.quoted_price) : '') + kv('Internal notes', q.internal_notes) : '<p class="muted small">Prices are visible only to users with price access (Ken / Rob). If you have access and see nothing here, no quote has been entered yet.</p>') +
       '<label for="qp">Quoted price ($)</label><input id="qp" type="number" min="0" step="0.01" inputmode="decimal" value="' + (q.quoted_price != null ? esc(q.quoted_price) : (q.quote_amount != null ? esc(q.quote_amount) : '')) + '">' +
@@ -256,9 +286,10 @@
     h += '<div class="card"><h2 style="margin-top:0">Status</h2><label for="ss">Set status</label><select id="ss">' +
       STATUSES.map(function (s) { return '<option' + (s === q.status ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>' +
       '<label for="sm">Message to customer (optional – shown to the customer)</label><textarea id="sm" placeholder="Leave blank to keep the current message"></textarea><div id="sm2"></div><button class="btn primary" id="sb">Update status</button></div>';
-    if (!q.job_id && ['Cancelled', 'Delivered'].indexOf(q.status) < 0) h += '<div class="card"><h2 style="margin-top:0">Convert</h2><p class="muted small">Creates a Booked job from this request and marks it Accepted.</p><div id="cm"></div><button class="btn" id="cv">Convert to job</button></div>';
+    if (!q.job_id && ['Cancelled', 'Delivered'].indexOf(q.status) < 0) h += '<div class="card"><h2 style="margin-top:0">Convert' + (q.status === 'Accepted' ? ' <span class="badge s-accepted">customer accepted</span>' : '') + '</h2><p class="muted small">Creates a Booked job from this request and marks it Accepted.</p><div id="cm"></div><button class="btn" id="cv">Convert to job</button></div>';
     view.innerHTML = h;
     showPhotos($('ph'), q.photos);
+    wireThread(id, true);
     function act(btn, fn, doneMsg, box) {
       btn.onclick = async function () {
         var label = btn.textContent; setBusy(btn, true, label); box.innerHTML = '';
