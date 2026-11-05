@@ -130,6 +130,8 @@
       '<label for="dc">Delivery city / state</label><input id="dc" required>' +
       '<label for="pd">Preferred dates</label><input id="pd" placeholder="e.g. week of Nov 16, flexible">' +
       '<div class="two"><div><label for="cn">Contact name</label><input id="cn" value="' + esc(p.full_name || '') + '" required></div><div><label for="cp">Phone</label><input id="cp" type="tel" value="' + esc(p.phone || '') + '" required></div></div>' +
+      '<label for="ce">Email</label><input id="ce" type="email" autocomplete="email" inputmode="email" value="' + esc((session.user && session.user.email) || '') + '" required>' +
+      '<label>How should we contact you?</label><div class="seg"><label><input type="radio" name="cpref" value="text"><span>Text messaging</span></label><label><input type="radio" name="cpref" value="email"><span>Email</span></label></div>' +
       '<label for="nt">Notes (access, condition, gate codes)</label><textarea id="nt"></textarea>' + photoPicker(0) +
       '<div id="nmsg"></div><button class="btn primary" id="nb" type="submit">Submit request</button></form>';
     view.innerHTML = h; wirePicker(0);
@@ -137,14 +139,17 @@
       ev.preventDefault();
       var b = $('nb'), m = $('nmsg'); m.innerHTML = '';
       var v = function (id) { return $(id).value.trim(); };
-      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['da', 'delivery address'], ['dc', 'delivery city'], ['cn', 'contact name'], ['cp', 'phone']];
+      var need = [['id', 'item details'], ['pa', 'pickup address'], ['pc', 'pickup city'], ['da', 'delivery address'], ['dc', 'delivery city'], ['cn', 'contact name'], ['cp', 'phone'], ['ce', 'email']];
       for (var i = 0; i < need.length; i++) if (!v(need[i][0])) { m.innerHTML = msg('err', 'Please fill in ' + need[i][1] + '.'); return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('ce'))) { m.innerHTML = msg('err', 'Please enter a valid email address.'); return; }
+      var pref = document.querySelector('input[name=cpref]:checked');
+      if (!pref) { m.innerHTML = msg('err', 'Please choose how we should contact you (text or email).'); return; }
       setBusy(b, true, 'Submit request');
       try {
         var photos = await uploadPending();
         var row = {
           request_type: document.querySelector('input[name=rt]:checked').value,
-          contact_name: v('cn'), contact_phone: v('cp'),
+          contact_name: v('cn'), contact_phone: v('cp'), contact_email: v('ce'), contact_preference: pref.value,
           pickup_address: v('pa'), pickup_city: v('pc'), delivery_address: v('da'), delivery_city: v('dc'),
           item_description: $('it').value + ': ' + v('id'),
           preferred_dates: v('pd') || null, notes: v('nt') || null, photos: photos
@@ -174,19 +179,20 @@
   }
 
   // ---------- detail ----------
+  function prefLabel(p) { return p === 'text' ? 'Text messaging' : p === 'email' ? 'Email' : ''; }
   function kv(k, v) { return v ? '<div class="kv"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>' : ''; }
   async function viewDetail(id) {
     view.innerHTML = '<p class="muted center">Loading…</p>';
     var r = await sb.rpc('my_requests');
     if (r.error) { view.innerHTML = msg('err', nice(r.error)); return; }
     var q = (r.data || []).filter(function (x) { return x.id === id; })[0];
-    if (!q) { view.innerHTML = '<p><a href="#/">← Back</a></p>' + msg('err', 'Request not found.'); return; }
+    if (!q) { view.innerHTML = '<p><a href="#/">← Back</a></p>' + msg('err', 'Access denied or request not found. You can only view requests submitted from your own account.'); return; }
     var h = '<p><a href="#/">← My requests</a></p><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + '</div>' +
       (q.public_message ? '<div class="msg ' + (q.status === 'Missing information' ? 'warn' : 'ok') + '"><b>From Toymover:</b> ' + esc(q.public_message) + '</div>' : '') +
       (q.delivery_week ? kv('Scheduled week of', fdate(q.delivery_week)) : '') +
       kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
-      kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Notes', q.notes) +
+      kv('Preferred dates', q.preferred_dates) + kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Notes', q.notes) +
       '<div class="thumbs" id="ph"></div></div>';
     if (q.status === 'Quoted' && q.quote_amount != null) {
       h += '<div class="card quote"><div class="muted">Your quote</div><div class="amt">' + money(q.quote_amount) + '</div><div class="muted small">Quoted ' + fdate(q.quote_released_at) + '</div>' +
@@ -222,6 +228,70 @@
     if ($('cx')) act($('cx'), async function () { if (!confirm('Cancel this request?')) throw new Error('Not cancelled.'); var r = await sb.rpc('customer_cancel_request', { p_request_id: id }); if (r.error) throw r.error; }, 'Request cancelled', $('cm'));
   }
 
+  // ---------- supervisor deep link (#/r/<uuid> when signed in as owner/supervisor) ----------
+  var STATUSES = ['Submitted', 'In Review', 'Missing information', 'Scheduled', 'In Transit', 'Delivered', 'Cancelled'];
+  async function isSup() {
+    try { var r = await sb.rpc('my_profile'); if (r.error) return false; var p = (r.data || [])[0]; return !!(p && (p.is_owner || p.is_supervisor)); } catch (e) { return false; }
+  }
+  async function viewSupDetail(id) {
+    view.innerHTML = '<p class="muted center">Loading…</p>';
+    var r = await sb.rpc('sup_customer_requests');
+    if (r.error) { view.innerHTML = msg('err', nice(r.error)); return; }
+    var q = (r.data || []).filter(function (x) { return x.id === id; })[0];
+    if (!q) { view.innerHTML = msg('err', 'Request not found.'); return; }
+    var priced = q.quote_amount != null || q.quoted_price != null || q.internal_notes != null;
+    var h = '<div class="msg warn small"><b>Supervisor view</b> · request ' + esc(q.id) + '</div><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
+      '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + (q.reviewed_by ? ' · reviewed by ' + esc(q.reviewed_by) + ' ' + fdate(q.reviewed_at) : '') + '</div>' +
+      '<h2>Customer</h2>' + kv('Account name', q.customer_name) + kv('Account email', q.customer_email) + kv('Company', q.customer_company) +
+      kv('Contact', [q.contact_name, q.contact_phone].filter(Boolean).join(' · ')) + kv('Contact email', q.contact_email) + kv('Preferred contact method', prefLabel(q.contact_preference)) +
+      '<h2>Job</h2>' + kv('Pickup', [q.pickup_address, q.pickup_city].filter(Boolean).join(', ')) + kv('Delivery', [q.delivery_address, q.delivery_city].filter(Boolean).join(', ')) +
+      kv('Preferred dates', q.preferred_dates) + kv('Notes', q.notes) + kv('Message shown to customer', q.public_message) +
+      kv('Linked job', q.job_id) + kv('Accepted', q.accepted_at ? new Date(q.accepted_at).toLocaleString() : '') + kv('Declined', q.declined_at ? new Date(q.declined_at).toLocaleString() : '') + kv('Customer response', q.customer_response_note) +
+      '<div class="thumbs" id="ph"></div></div>';
+    h += '<div class="card"><h2 style="margin-top:0">Quote</h2>' +
+      (priced ? kv('Released quote (customer sees)', q.quote_amount != null ? money(q.quote_amount) : 'not released') + kv('Draft quoted price', q.quoted_price != null ? money(q.quoted_price) : '') + kv('Internal notes', q.internal_notes) : '<p class="muted small">Prices are visible only to users with price access (Ken / Rob). If you have access and see nothing here, no quote has been entered yet.</p>') +
+      '<label for="qp">Quoted price ($)</label><input id="qp" type="number" min="0" step="0.01" inputmode="decimal" value="' + (q.quoted_price != null ? esc(q.quoted_price) : (q.quote_amount != null ? esc(q.quote_amount) : '')) + '">' +
+      '<label for="qn">Internal notes (never shown to customer)</label><textarea id="qn">' + esc(q.internal_notes || '') + '</textarea><div id="qm"></div>' +
+      '<button class="btn" id="qs">Save draft (not visible to customer)</button><button class="btn primary" id="qr">Release quote to customer</button></div>';
+    h += '<div class="card"><h2 style="margin-top:0">Status</h2><label for="ss">Set status</label><select id="ss">' +
+      STATUSES.map(function (s) { return '<option' + (s === q.status ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select>' +
+      '<label for="sm">Message to customer (optional – shown to the customer)</label><textarea id="sm" placeholder="Leave blank to keep the current message"></textarea><div id="sm2"></div><button class="btn primary" id="sb">Update status</button></div>';
+    if (!q.job_id && ['Cancelled', 'Delivered'].indexOf(q.status) < 0) h += '<div class="card"><h2 style="margin-top:0">Convert</h2><p class="muted small">Creates a Booked job from this request and marks it Accepted.</p><div id="cm"></div><button class="btn" id="cv">Convert to job</button></div>';
+    view.innerHTML = h;
+    showPhotos($('ph'), q.photos);
+    function act(btn, fn, doneMsg, box) {
+      btn.onclick = async function () {
+        var label = btn.textContent; setBusy(btn, true, label); box.innerHTML = '';
+        try { var out = await fn(); toast(typeof out === 'string' && out ? out : doneMsg); viewSupDetail(id); } catch (e) { box.innerHTML = msg('err', nice(e)); setBusy(btn, false, label); }
+      };
+    }
+    function quote(release) {
+      return async function () {
+        var pv = $('qp').value.trim(); var price = pv === '' ? null : Number(pv);
+        if (price !== null && (!isFinite(price) || price < 0)) throw new Error('Enter a valid price.');
+        if (release) { if (price === null) throw new Error('Enter a price to release.'); if (!confirm('Release ' + money(price) + ' to the customer now?')) throw new Error('Not released.'); }
+        var r = await sb.rpc('sup_quote_request', { p_request_id: id, p_quoted_price: price, p_internal_notes: $('qn').value.trim() || null, p_release: release });
+        if (r.error) throw r.error; return r.data;
+      };
+    }
+    act($('qs'), quote(false), 'Saved', $('qm'));
+    act($('qr'), quote(true), 'Released', $('qm'));
+    act($('sb'), async function () {
+      var st = $('ss').value; if (st === q.status) throw new Error('Status is already ' + st + '.');
+      if (!confirm('Set status to ' + st + '?')) throw new Error('Not changed.');
+      var r = await sb.rpc('sup_set_request_status', { p_request_id: id, p_status: st, p_public_message: $('sm').value.trim() || null }); if (r.error) throw r.error;
+    }, 'Status updated', $('sm2'));
+    if ($('cv')) act($('cv'), async function () {
+      if (!confirm('Convert this request to a Booked job?')) throw new Error('Not converted.');
+      var r = await sb.rpc('sup_convert_request_to_job', { p_request_id: id }); if (r.error) throw r.error; return 'Created job ' + r.data;
+    }, 'Converted', $('cm'));
+  }
+  async function viewRequest(id) {
+    view.innerHTML = '<p class="muted center">Loading…</p>';
+    if (await isSup()) return viewSupDetail(id);
+    return viewDetail(id);
+  }
+
   // ---------- routing ----------
   function setChrome() {
     var signed = !!session && !recovery;
@@ -236,7 +306,7 @@
     if (!session) return viewAuth('in');
     var h = location.hash || '#/', m;
     if (h === '#/new') return viewNew();
-    if ((m = h.match(/^#\/r\/([0-9a-f-]{36})$/i))) return viewDetail(m[1].toLowerCase());
+    if ((m = h.match(/^#\/r\/([0-9a-f-]{36})$/i))) return viewRequest(m[1].toLowerCase());
     return viewList();
   }
   $('logout').onclick = async function () { await sb.auth.signOut(); };
