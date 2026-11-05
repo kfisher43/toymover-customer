@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var APP_VERSION = '1.3.0'; // bump on every meaningful deploy (shown in the footer)
+  var APP_VERSION = '1.4.0'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -316,8 +316,28 @@
 
   // ---------- supervisor deep link (#/r/<uuid> when signed in as owner/supervisor) ----------
   var STATUSES = ['Submitted', 'In Review', 'Missing information', 'Scheduled', 'In Transit', 'Delivered', 'Cancelled'];
+  var supCache = null; // cached per signed-in user; cleared on auth change
   async function isSup() {
-    try { var r = await sb.rpc('my_profile'); if (r.error) return false; var p = (r.data || [])[0]; return !!(p && (p.is_owner || p.is_supervisor)); } catch (e) { return false; }
+    if (supCache != null) return supCache;
+    try { var r = await sb.rpc('my_profile'); if (r.error) return false; var p = (r.data || [])[0]; supCache = !!(p && (p.is_owner || p.is_supervisor)); return supCache; } catch (e) { return false; }
+  }
+  async function viewSupList() {
+    view.innerHTML = '<h1>Request queue</h1><p class="muted center">Loading…</p>';
+    var r = await sb.rpc('sup_customer_requests');
+    if (r.error) { view.innerHTML = '<h1>Request queue</h1>' + msg('err', nice(r.error)); return; }
+    var rows = r.data || [];
+    var open = rows.filter(function (q) { return ['Cancelled', 'Delivered'].indexOf(q.status) < 0; }).length;
+    var h = '<h1>Request queue</h1><p class="muted small">' + rows.length + ' total · ' + open + ' open</p>';
+    if (!rows.length) h += '<p class="muted center">No customer requests yet.</p>';
+    rows.forEach(function (q) {
+      h += '<a class="card" href="#/r/' + q.id + '"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
+        '<div class="small"><b>' + esc(q.contact_name || q.customer_name || '—') + '</b></div>' +
+        '<div class="muted small">' + esc(cityLine(q, 'pickup')) + ' → ' + esc(cityLine(q, 'delivery')) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + ' · ' + fdate(q.created_at) + '</div>' +
+        (q.status === 'Quoted' && q.quote_amount != null ? '<div class="pay small"><b>Quoted: ' + money(q.quote_amount) + '</b></div>' : '') +
+        (q.status === 'Missing information' ? '<div class="small" style="color:var(--warn)"><b>Waiting on customer for missing information</b></div>' : '') +
+        (q.job_id ? '<div class="muted small">Job: ' + esc(q.job_id) + '</div>' : '') + '</a>';
+    });
+    view.innerHTML = h;
   }
   async function viewSupDetail(id) {
     view.innerHTML = '<p class="muted center">Loading…</p>';
@@ -326,7 +346,7 @@
     var q = (r.data || []).filter(function (x) { return x.id === id; })[0];
     if (!q) { view.innerHTML = msg('err', 'Request not found.'); return; }
     var priced = q.quote_amount != null || q.quoted_price != null || q.internal_notes != null;
-    var h = '<div class="msg warn small"><b>Supervisor view</b> · request ' + esc(q.id) + '</div><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
+    var h = '<p><a href="#/">← Request queue</a></p><div class="msg warn small"><b>Supervisor view</b> · request ' + esc(q.id) + '</div><div class="card"><div class="row"><span class="title">' + esc(q.item_description) + '</span>' + badge(q.status) + '</div>' +
       '<div class="muted small">Submitted ' + fdate(q.created_at) + ' · ' + (q.request_type === 'bid' ? 'Quote request' : 'Transport') + (q.reviewed_by ? ' · reviewed by ' + esc(q.reviewed_by) + ' ' + fdate(q.reviewed_at) : '') + '</div>' +
       '<h2>Customer</h2>' + kv('Name', q.contact_name || q.customer_name) + kv('Phone', q.contact_phone) + kv('Email', q.contact_email || q.customer_email) + kv('Company', q.company || q.customer_company) + kv('Preferred contact method', prefLabel(q.contact_preference)) + kv('Payment method', q.payment_method) +
       '<h2>Pickup</h2>' + contactKv(q, 'pickup', 'Pickup') + placeKv(q, 'pickup', 'Pickup') +
@@ -414,8 +434,13 @@
     if (recovery) return viewNewPassword();
     if (!session) return viewAuth('in');
     var h = location.hash || '#/', m;
+    isSup().then(function (sup) { if (session) $('t-list').textContent = sup ? 'Request queue' : 'My requests'; });
     if (h === '#/new') return viewNew();
     if ((m = h.match(/^#\/r\/([0-9a-f-]{36})$/i))) return viewRequest(m[1].toLowerCase());
+    var sup = await isSup();
+    $('t-list').textContent = sup ? 'Request queue' : 'My requests';
+    if ((location.hash || '#/') !== h) return; // hash changed while waiting
+    if (sup) return viewSupList();
     return viewList();
   }
   $('logout').onclick = async function () { await sb.auth.signOut(); };
@@ -423,6 +448,8 @@
   sb.auth.onAuthStateChange(function (ev, s) {
     var was = session && session.user && session.user.id;
     session = s;
+    if (ev === 'SIGNED_OUT' || (s && s.user.id) !== was) supCache = null;
+    if (!s) $('t-list').textContent = 'My requests';
     if (ev === 'PASSWORD_RECOVERY') recovery = true;
     if (ev === 'SIGNED_OUT') { recovery = false; location.hash = '#/'; }
     if (ev === 'INITIAL_SESSION' || ev === 'SIGNED_IN' && (!was || was !== (s && s.user.id)) || ev === 'SIGNED_OUT' || ev === 'PASSWORD_RECOVERY') setTimeout(route, 0);
