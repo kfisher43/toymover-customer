@@ -6,10 +6,10 @@ header#top{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;d
 .logo{color:#fff;text-decoration:none;font-weight:800;font-size:20px;letter-spacing:.2px;border-bottom:3px solid var(--accent2)}
 
 .brand{overflow:hidden;display:flex;align-items:center;gap:8px;text-decoration:none;color:#fff;min-width:0;justify-self:start}
-.hlogo{height:34px;width:auto;flex:none;background:#fff;border-radius:6px;padding:2px 4px}
+.hlogo{height:48px;width:auto;max-height:52px;flex:none;background:#fff;border-radius:6px;padding:2px 4px}
 .usr{display:flex;align-items:center;justify-self:end;min-width:0}
 #who{font-size:15px;font-weight:600;text-align:center;max-width:44vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:480px){.logo{display:none}#who{font-size:14px;max-width:40vw}}
+@media (max-width:480px){.logo{display:none}#who{font-size:14px;max-width:40vw}.hlogo{height:40px}}
 #logout{font:inherit;font-size:13px;font-weight:600;color:#fff;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.55);border-radius:8px;padding:5px 10px;cursor:pointer}
 main{max-width:640px;margin:0 auto;padding:14px 14px 24px}
 h1{font-size:22px;margin:6px 0 10px}
