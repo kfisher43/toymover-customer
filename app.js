@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var APP_VERSION = '1.4.1'; // bump on every meaningful deploy (shown in the footer)
+  var APP_VERSION = '1.4.2'; // bump on every meaningful deploy (shown in the footer)
   var SB_URL = 'https://jafgokwiwkbrshdzhleo.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphZmdva3dpd2ticnNoZHpobGVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5OTU2MTksImV4cCI6MjEwNzU3MTYxOX0._gM5bNFyMk6xNgZP1S78UTnotI0HILnzL_bgv_zaMzM';
   var sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -35,7 +35,9 @@
     if (mode === 'up') h += '<label for="fn">Full name</label><input id="fn" autocomplete="name" required>';
     h += '<label for="em">Email</label><input id="em" type="email" autocomplete="email" required>';
     if (mode !== 'reset') h += '<label for="pw">Password</label><input id="pw" type="password" autocomplete="' + (mode === 'up' ? 'new-password' : 'current-password') + '" minlength="8" required>';
-    h += '<div id="am"></div><button class="btn primary" type="submit" id="ab">' + (mode === 'up' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in') + '</button></form>';
+    h += '<div id="am"></div>';
+    if (mode === 'up') h += '<p class="muted small">By creating an account you agree to the <a href="terms.html" target="_blank" rel="noopener">Terms</a> and <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>';
+    h += '<button class="btn primary" type="submit" id="ab">' + (mode === 'up' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in') + '</button></form>';
     if (mode === 'in') h += '<p class="center"><button class="link" id="g-reset">Forgot password?</button></p><p class="center muted">New to Toymover? <button class="link" id="g-up">Create an account</button></p>';
     else h += '<p class="center"><button class="link" id="g-in">Back to sign in</button></p>';
     h += '</div><p class="muted center small">Fisher Transport LLC · Coppell, TX</p>';
